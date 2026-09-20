@@ -40,6 +40,39 @@ public struct MenuBarView: View {
             .padding(.horizontal, 14)
             .padding(.top, 12)
 
+            // Pairing QR Code Toggle
+            Button(action: {
+                withAnimation {
+                    viewModel.toggleQRCode()
+                }
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: viewModel.showQRCode ? "chevron.up.circle" : "qrcode")
+                    Text(viewModel.showQRCode ? "Hide Pairing QR Code" : "Show Pairing QR Code")
+                }
+                .font(.system(size: 11, weight: .medium))
+            }
+            .buttonStyle(.link)
+            .padding(.horizontal, 14)
+
+            if viewModel.showQRCode, let qrImage = viewModel.pairingQRCodeImage {
+                VStack(spacing: 8) {
+                    Image(nsImage: qrImage)
+                        .interpolation(.none)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 150, height: 150)
+                        .background(Color.white)
+                        .cornerRadius(8)
+                        .shadow(radius: 2)
+
+                    Text("Scan with phone camera or Quick Share scanner")
+                        .font(.system(size: 10))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.vertical, 4)
+            }
+
             Divider()
 
             // Consent Modal (if incoming request)

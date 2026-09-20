@@ -30,6 +30,8 @@ public final class TransferViewModel: ObservableObject, QuickShareServerDelegate
     @Published public var currentProgress: TransferProgress?
     @Published public var currentStatus: String = "Ready for Quick Share"
     @Published public var transferHistory: [CompletedTransferRecord] = []
+    @Published public var showQRCode: Bool = false
+    @Published public var pairingQRCodeImage: NSImage?
 
     private var activeConnection: InboundNearbyConnection?
 
@@ -75,6 +77,15 @@ public final class TransferViewModel: ObservableObject, QuickShareServerDelegate
         activeTransfer = nil
         currentProgress = nil
         currentStatus = "Cancelled transfer"
+    }
+
+    public func toggleQRCode() {
+        showQRCode.toggle()
+        if showQRCode && pairingQRCodeImage == nil {
+            let pairingKey = endpointID.isEmpty ? "QuickShare" : endpointID
+            let pairingURL = "https://quickshare.google/qrcode#key=\(pairingKey)"
+            pairingQRCodeImage = QRCodeGenerator.generateQRCode(from: pairingURL, scale: 6.0)
+        }
     }
 
     // MARK: - QuickShareServerDelegate

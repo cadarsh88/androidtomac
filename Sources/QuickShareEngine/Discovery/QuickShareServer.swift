@@ -53,8 +53,8 @@ public final class QuickShareServer: NSObject, NetServiceDelegate, InboundNearby
                 if let port = listener.port?.rawValue {
                     let idString = String(bytes: self.endpointID, encoding: .ascii) ?? "????"
                     print("[QuickShareServer] TCP Listener ready on port \(port) (Endpoint: \(idString))")
-                    self.publishBonjour(port: Int32(port))
                     DispatchQueue.main.async {
+                        self.publishBonjour(port: Int32(port))
                         self.delegate?.serverDidStart(port: port, endpointID: idString)
                     }
                 }
@@ -104,6 +104,9 @@ public final class QuickShareServer: NSObject, NetServiceDelegate, InboundNearby
     // MARK: - Bonjour Publishing
 
     private func publishBonjour(port: Int32) {
+        mdnsService?.stop()
+        mdnsService = nil
+
         let nameBytes: [UInt8] = [
             0x23, // PCP
             endpointID[0], endpointID[1], endpointID[2], endpointID[3],
@@ -116,6 +119,7 @@ public final class QuickShareServer: NSObject, NetServiceDelegate, InboundNearby
 
         let service = NetService(domain: "", type: "_FC9F5ED42C8A._tcp.", name: serviceName, port: port)
         service.delegate = self
+        service.schedule(in: .main, forMode: .common)
         let txtDict: [String: Data] = [
             "n": endpointInfo.serialize().urlSafeBase64EncodedString().data(using: .utf8)!
         ]
@@ -123,6 +127,14 @@ public final class QuickShareServer: NSObject, NetServiceDelegate, InboundNearby
         service.publish()
         self.mdnsService = service
         print("[QuickShareServer] mDNS published: '\(serviceName)' (Name: '\(deviceName)', Port: \(port))")
+    }
+
+    public func netServiceDidPublish(_ sender: NetService) {
+        print("[QuickShareServer] mDNS registration successful: '\(sender.name)'")
+    }
+
+    public func netService(_ sender: NetService, didNotPublish errorDict: [String : NSNumber]) {
+        print("[QuickShareServer] mDNS registration FAILED with error: \(errorDict)")
     }
 
     private static func generateEndpointID() -> [UInt8] {
