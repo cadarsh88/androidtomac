@@ -1,0 +1,10 @@
+{
+  "abseil": {
+    "commit": "76bb24329e8bf5f39704eb10d21b9a80befa7c81",
+    "tag": "20250512.1"
+  },
+  "protobuf": {
+    "commit": "2c74169b34066ceb8ddb6b882fcb3fb32d737a55",
+    "tag": "v36.2"
+  }
+}
