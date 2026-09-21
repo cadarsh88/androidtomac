@@ -125,6 +125,13 @@ open class NearbyConnection {
             guard let content = content, content.count == 4 else {
                 return
             }
+
+            // Diagnostic probe: Handle browser HTTP GET check (e.g. from Android browser to verify connectivity)
+            if content[0] == 0x47 && content[1] == 0x45 && content[2] == 0x54 && content[3] == 0x20 {
+                self.respondToDiagnosticsProbe()
+                return
+            }
+
             let frameLength: UInt32 = UInt32(content[0]) << 24 | UInt32(content[1]) << 16 | UInt32(content[2]) << 8 | UInt32(content[3])
             guard Int(frameLength) < NearbyConnection.saneFrameLength else {
                 self.lastError = NearbyError.protocolError("Unexpected packet length: \(frameLength)")
@@ -135,21 +142,60 @@ open class NearbyConnection {
         }
     }
 
+    private func respondToDiagnosticsProbe() {
+        let body = """
+        <!DOCTYPE html>
+        <html><head><meta name="viewport" content="width=device-width,initial-scale=1.0">
+        <title>Quick Share Active</title>
+        <style>body{font-family:system-ui,sans-serif;padding:24px;text-align:center;background:#f0fdf4;color:#14532d}
+        .card{background:white;padding:20px;border-radius:12px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.1);max-width:380px;margin:auto}
+        .status{display:inline-block;padding:6px 14px;border-radius:20px;background:#22c55e;color:white;font-weight:600;font-size:14px;margin-bottom:12px}
+        h2{margin:8px 0;font-size:20px}p{font-size:14px;color:#374151;line-height:1.5}</style>
+        </head><body><div class="card">
+        <div class="status">&#x2714; WI-FI CONNECTIVITY OK</div>
+        <h2>Mac is Reachable!</h2>
+        <p>Your Android phone can successfully communicate with this Mac over Wi-Fi.</p>
+        <p>Return to your file, tap <b>Share &rarr; Quick Share</b>, and select this Mac.</p>
+        </div></body></html>
+        """
+        guard let bodyData = body.data(using: .utf8) else { return }
+        let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(bodyData.count)\r\nConnection: close\r\n\r\n"
+        var fullResponse = headers.data(using: .utf8)!
+        fullResponse.append(bodyData)
+        connection.send(content: fullResponse, isComplete: true, completion: .contentProcessed { [weak self] _ in
+            self?.disconnect()
+        })
+    }
+
     private func receiveFramePayload(length: UInt32) {
-        connection.receive(minimumIncompleteLength: Int(length), maximumLength: Int(length)) { [weak self] content, _, isComplete, error in
+        var accumulated = Data()
+        accumulated.reserveCapacity(Int(length))
+        self.receiveFrameChunk(accumulated: accumulated, remaining: Int(length))
+    }
+
+    private func receiveFrameChunk(accumulated: Data, remaining: Int) {
+        let chunkSize = min(remaining, 65536)
+        connection.receive(minimumIncompleteLength: 1, maximumLength: chunkSize) { [weak self] content, _, isComplete, error in
             guard let self = self else { return }
             if self.connectionClosed { return }
             if isComplete {
                 self.handleConnectionClosure()
                 return
             }
-            guard let content = content else {
+            guard let content = content, !content.isEmpty else {
                 if let error = error { self.lastError = error }
                 self.protocolError()
                 return
             }
-            self.processReceivedFrame(frameData: content)
-            self.receiveFrameAsync()
+            var newAccumulated = accumulated
+            newAccumulated.append(content)
+            let newRemaining = remaining - content.count
+            if newRemaining <= 0 {
+                self.processReceivedFrame(frameData: newAccumulated)
+                self.receiveFrameAsync()
+            } else {
+                self.receiveFrameChunk(accumulated: newAccumulated, remaining: newRemaining)
+            }
         }
     }
 

@@ -20,6 +20,11 @@ public struct MenuBarView: View {
                     Text(viewModel.currentStatus)
                         .font(.system(size: 11))
                         .foregroundColor(.secondary)
+                    if viewModel.isRunning && viewModel.listeningPort > 0 {
+                        Text("\(viewModel.localIPAddress):\(viewModel.listeningPort)")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.secondary)
+                    }
                 }
 
                 Spacer()
