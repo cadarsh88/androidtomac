@@ -127,7 +127,7 @@ If building or extending this project from scratch:
 ### Option A: From Terminal (Swift CLI)
 ```bash
 # Navigate to the repository
-cd ~/Documents/Git/cadarsh88/androidtomac
+cd ~/Documents/Git/androidtomac
 
 # Build the entire project
 swift build
