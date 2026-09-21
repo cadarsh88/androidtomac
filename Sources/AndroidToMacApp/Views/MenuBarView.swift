@@ -71,9 +71,12 @@ public struct MenuBarView: View {
                         .cornerRadius(8)
                         .shadow(radius: 2)
 
-                    Text("Scan with phone camera or Quick Share scanner")
+                    Text("Point Android Camera at QR code or open:")
                         .font(.system(size: 10))
                         .foregroundColor(.secondary)
+                    Text("http://\(viewModel.localIPAddress):\(viewModel.listeningPort)")
+                        .font(.system(size: 11, weight: .bold, design: .monospaced))
+                        .foregroundColor(.accentColor)
                 }
                 .padding(.vertical, 4)
             }

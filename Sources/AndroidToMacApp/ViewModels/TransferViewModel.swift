@@ -107,10 +107,9 @@ public final class TransferViewModel: ObservableObject, QuickShareServerDelegate
 
     public func toggleQRCode() {
         showQRCode.toggle()
-        if showQRCode && pairingQRCodeImage == nil {
-            let pairingKey = endpointID.isEmpty ? "QuickShare" : endpointID
-            let pairingURL = "https://quickshare.google/qrcode#key=\(pairingKey)"
-            pairingQRCodeImage = QRCodeGenerator.generateQRCode(from: pairingURL, scale: 6.0)
+        if showQRCode {
+            let dropURL = "http://\(localIPAddress):\(listeningPort)"
+            pairingQRCodeImage = QRCodeGenerator.generateQRCode(from: dropURL, scale: 6.0)
         }
     }
 
