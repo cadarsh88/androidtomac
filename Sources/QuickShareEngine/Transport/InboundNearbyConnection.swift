@@ -168,13 +168,24 @@ public class InboundNearbyConnection: NearbyConnection, StreamingFileWriterDeleg
         currentState = .receivedConnectionRequest
     }
 
+    private func asSignedBigEndianBytes(_ data: Data) -> Data {
+        var bytes = [UInt8](data)
+        while bytes.count > 1 && bytes[0] == 0 && bytes[1] < 128 {
+            bytes.remove(at: 0)
+        }
+        if let first = bytes.first, first >= 128 {
+            bytes.insert(0, at: 0)
+        }
+        return Data(bytes)
+    }
+
     private func processUkey2ClientInit(_ msg: Securegcm_Ukey2Message) throws {
         guard msg.hasMessageType, msg.hasMessageData, case .clientInit = msg.messageType else {
-            throw NearbyError.ukey2
+            throw NearbyError.ukey2(reason: "Expected clientInit message type")
         }
         let clientInit = try Securegcm_Ukey2ClientInit(serializedData: msg.messageData)
         guard clientInit.version == 1, clientInit.random.count == 32 else {
-            throw NearbyError.ukey2
+            throw NearbyError.ukey2(reason: "Invalid version (\(clientInit.version)) or random size (\(clientInit.random.count))")
         }
 
         var foundCommitment: Data? = nil
@@ -185,7 +196,7 @@ public class InboundNearbyConnection: NearbyConnection, StreamingFileWriterDeleg
             }
         }
         guard let commitment = foundCommitment else {
-            throw NearbyError.ukey2
+            throw NearbyError.ukey2(reason: "No p256Sha512 cipher commitment found")
         }
         self.cipherCommitment = commitment
 
@@ -203,8 +214,8 @@ public class InboundNearbyConnection: NearbyConnection, StreamingFileWriterDeleg
         var pkey = Securemessage_GenericPublicKey()
         pkey.type = .ecP256
         pkey.ecP256PublicKey = Securemessage_EcP256PublicKey()
-        pkey.ecP256PublicKey.x = Data(rawPub.prefix(32))
-        pkey.ecP256PublicKey.y = Data(rawPub.suffix(32))
+        pkey.ecP256PublicKey.x = asSignedBigEndianBytes(Data(rawPub.prefix(32)))
+        pkey.ecP256PublicKey.y = asSignedBigEndianBytes(Data(rawPub.suffix(32)))
         serverInit.publicKey = try pkey.serializedData()
 
         var serverInitMsg = Securegcm_Ukey2Message()
@@ -213,18 +224,34 @@ public class InboundNearbyConnection: NearbyConnection, StreamingFileWriterDeleg
         let serverInitData = try serverInitMsg.serializedData()
         ukeyServerInitMsgData = serverInitData
 
+        print("[InboundNearbyConnection] Sending UKEY2 serverInit...")
         sendFrameAsync(serverInitData)
         currentState = .sentUkeyServerInit
     }
 
     private func processUkey2ClientFinish(_ msg: Securegcm_Ukey2Message, raw: Data) throws {
-        guard msg.hasMessageType, msg.hasMessageData, case .clientFinish = msg.messageType else {
-            throw NearbyError.ukey2
+        if msg.hasMessageType && msg.messageType == .alert {
+            let alertType = (try? Securegcm_Ukey2Alert(serializedData: msg.messageData))?.type ?? .badMessage
+            let alertErr = (try? Securegcm_Ukey2Alert(serializedData: msg.messageData))?.errorMessage ?? "no message"
+            print("[InboundNearbyConnection] Android sent UKEY2 Alert: \(alertType) (\(alertErr))")
+            throw NearbyError.ukey2(reason: "Android sent UKEY2 alert: \(alertType) (\(alertErr))")
         }
-        var sha = SHA512()
-        sha.update(data: raw)
-        guard cipherCommitment == Data(sha.finalize()) else {
-            throw NearbyError.ukey2
+
+        guard msg.hasMessageType, msg.hasMessageData, case .clientFinish = msg.messageType else {
+            throw NearbyError.ukey2(reason: "Expected clientFinish, received: \(msg.messageType)")
+        }
+
+        var shaRaw = SHA512()
+        shaRaw.update(data: raw)
+        let hashRaw = Data(shaRaw.finalize())
+
+        var shaData = SHA512()
+        shaData.update(data: msg.messageData)
+        let hashData = Data(shaData.finalize())
+
+        guard cipherCommitment == hashRaw || cipherCommitment == hashData else {
+            print("[InboundNearbyConnection] Commitment mismatch! commitment=\(cipherCommitment?.hexEncodedString() ?? "nil") hashRaw=\(hashRaw.hexEncodedString()) hashData=\(hashData.hexEncodedString())")
+            throw NearbyError.ukey2(reason: "Cipher commitment hash mismatch")
         }
 
         let clientFinish = try Securegcm_Ukey2ClientFinished(serializedData: msg.messageData)
@@ -232,6 +259,7 @@ public class InboundNearbyConnection: NearbyConnection, StreamingFileWriterDeleg
             throw NearbyError.requiredFieldMissing("clientFinish.publicKey")
         }
         let clientKey = try Securemessage_GenericPublicKey(serializedData: clientFinish.publicKey)
+        print("[InboundNearbyConnection] UKEY2 clientFinish verified successfully, finalizing key exchange...")
         try finalizeKeyExchange(peerKey: clientKey)
         currentState = .receivedUkeyClientFinish
     }

@@ -6,7 +6,7 @@ import CryptoKit
 public enum NearbyError: Error, LocalizedError {
     case protocolError(_ message: String)
     case requiredFieldMissing(_ message: String)
-    case ukey2
+    case ukey2(reason: String = "Handshake aborted")
     case inputOutput
     case canceled(reason: CancellationReason)
 
@@ -18,7 +18,7 @@ public enum NearbyError: Error, LocalizedError {
         switch self {
         case .protocolError(let msg): return "Protocol error: \(msg)"
         case .requiredFieldMissing(let field): return "Missing required field: \(field)"
-        case .ukey2: return "UKEY2 handshake failed"
+        case .ukey2(let reason): return "UKEY2 handshake failed: \(reason)"
         case .inputOutput: return "I/O error during transfer"
         case .canceled(let reason): return "Transfer canceled (\(reason))"
         }
@@ -234,7 +234,7 @@ open class NearbyConnection {
 
         var smsg = Securemessage_SecureMessage()
         smsg.headerAndBody = try hb.serializedData()
-        guard let hmacKey = sendHmacKey else { throw NearbyError.ukey2 }
+        guard let hmacKey = sendHmacKey else { throw NearbyError.ukey2(reason: "Missing sendHmacKey") }
         smsg.signature = Data(HMAC<SHA256>.authenticationCode(for: smsg.headerAndBody, using: hmacKey))
         sendFrameAsync(try smsg.serializedData(), completion: completion)
     }
@@ -273,7 +273,7 @@ open class NearbyConnection {
             throw NearbyError.requiredFieldMissing("secureMessage.signature|headerAndBody")
         }
         guard let recvKey = recvHmacKey else {
-            throw NearbyError.ukey2
+            throw NearbyError.ukey2(reason: "Missing recvHmacKey")
         }
         let hmac = Data(HMAC<SHA256>.authenticationCode(for: smsg.headerAndBody, using: recvKey))
         guard hmac == smsg.signature else {
@@ -390,7 +390,7 @@ open class NearbyConnection {
 
         let x963Representation = Data([0x04]) + clientX + clientY
         let peerPublicKey = try P256.KeyAgreement.PublicKey(x963Representation: x963Representation)
-        guard let privKey = privateKey else { throw NearbyError.ukey2 }
+        guard let privKey = privateKey else { throw NearbyError.ukey2(reason: "Missing privateKey") }
 
         let sharedSecret = try privKey.sharedSecretFromKeyAgreement(with: peerPublicKey)
         let derivedSecretKey = sharedSecret.withUnsafeBytes { ptr in
@@ -398,7 +398,7 @@ open class NearbyConnection {
         }
 
         guard let clientInit = ukeyClientInitMsgData, let serverInit = ukeyServerInitMsgData else {
-            throw NearbyError.ukey2
+            throw NearbyError.ukey2(reason: "Missing ukeyClientInitMsgData or ukeyServerInitMsgData")
         }
         var ukeyInfo = Data()
         ukeyInfo.append(clientInit)

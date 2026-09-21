@@ -21,6 +21,10 @@ public extension Data {
         return Data(suffix(numBytes))
     }
 
+    func hexEncodedString() -> String {
+        return map { String(format: "%02hhx", $0) }.joined()
+    }
+
     static func randomData(length: Int) -> Data {
         var data = Data(count: length)
         data.withUnsafeMutableBytes {
