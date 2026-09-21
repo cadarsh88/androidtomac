@@ -204,8 +204,9 @@ open class NearbyConnection {
         var encryptedData = Data(count: serializedMsg.count + 16)
         var encryptedLength: size_t = 0
 
+        var cryptStatus: CCCryptorStatus = CCCryptorStatus(kCCSuccess)
         encryptedData.withUnsafeMutableBytes {
-            let status = CCCrypt(
+            cryptStatus = CCCrypt(
                 CCOperation(kCCEncrypt),
                 CCAlgorithm(kCCAlgorithmAES128),
                 CCOptions(kCCOptionPKCS7Padding),
@@ -215,7 +216,9 @@ open class NearbyConnection {
                 $0.baseAddress, $0.count,
                 &encryptedLength
             )
-            guard status == kCCSuccess else { fatalError("CCCrypt encrypt error: \(status)") }
+        }
+        guard cryptStatus == kCCSuccess else {
+            throw NearbyError.protocolError("CCCrypt encrypt error: \(cryptStatus)")
         }
 
         var hb = Securemessage_HeaderAndBody()
@@ -231,7 +234,8 @@ open class NearbyConnection {
 
         var smsg = Securemessage_SecureMessage()
         smsg.headerAndBody = try hb.serializedData()
-        smsg.signature = Data(HMAC<SHA256>.authenticationCode(for: smsg.headerAndBody, using: sendHmacKey!))
+        guard let hmacKey = sendHmacKey else { throw NearbyError.ukey2 }
+        smsg.signature = Data(HMAC<SHA256>.authenticationCode(for: smsg.headerAndBody, using: hmacKey))
         sendFrameAsync(try smsg.serializedData(), completion: completion)
     }
 
@@ -268,7 +272,10 @@ open class NearbyConnection {
         guard smsg.hasSignature, smsg.hasHeaderAndBody else {
             throw NearbyError.requiredFieldMissing("secureMessage.signature|headerAndBody")
         }
-        let hmac = Data(HMAC<SHA256>.authenticationCode(for: smsg.headerAndBody, using: recvHmacKey!))
+        guard let recvKey = recvHmacKey else {
+            throw NearbyError.ukey2
+        }
+        let hmac = Data(HMAC<SHA256>.authenticationCode(for: smsg.headerAndBody, using: recvKey))
         guard hmac == smsg.signature else {
             throw NearbyError.protocolError("HMAC verification failed")
         }
@@ -276,8 +283,9 @@ open class NearbyConnection {
         var decryptedData = Data(count: headerAndBody.body.count)
 
         var decryptedLength: Int = 0
+        var decryptStatus: CCCryptorStatus = CCCryptorStatus(kCCSuccess)
         decryptedData.withUnsafeMutableBytes {
-            let status = CCCrypt(
+            decryptStatus = CCCrypt(
                 CCOperation(kCCDecrypt),
                 CCAlgorithm(kCCAlgorithmAES128),
                 CCOptions(kCCOptionPKCS7Padding),
@@ -287,7 +295,9 @@ open class NearbyConnection {
                 $0.baseAddress, $0.count,
                 &decryptedLength
             )
-            guard status == kCCSuccess else { fatalError("CCCrypt decrypt error: \(status)") }
+        }
+        guard decryptStatus == kCCSuccess else {
+            throw NearbyError.protocolError("CCCrypt decrypt error: \(decryptStatus)")
         }
         decryptedData = decryptedData.prefix(decryptedLength)
         let d2dMsg = try Securegcm_DeviceToDeviceMessage(serializedData: decryptedData)
@@ -373,8 +383,8 @@ open class NearbyConnection {
 
         var clientX = peerKey.ecP256PublicKey.x
         var clientY = peerKey.ecP256PublicKey.y
-        if clientX.count > 32 { clientX = clientX.suffix(32) }
-        if clientY.count > 32 { clientY = clientY.suffix(32) }
+        if clientX.count > 32 { clientX = Data(clientX.suffix(32)) }
+        if clientY.count > 32 { clientY = Data(clientY.suffix(32)) }
         if clientX.count < 32 { clientX = Data(repeating: 0, count: 32 - clientX.count) + clientX }
         if clientY.count < 32 { clientY = Data(repeating: 0, count: 32 - clientY.count) + clientY }
 
@@ -387,9 +397,12 @@ open class NearbyConnection {
             Data(SHA256.hash(data: Data(ptr)))
         }
 
+        guard let clientInit = ukeyClientInitMsgData, let serverInit = ukeyServerInitMsgData else {
+            throw NearbyError.ukey2
+        }
         var ukeyInfo = Data()
-        ukeyInfo.append(ukeyClientInitMsgData!)
-        ukeyInfo.append(ukeyServerInitMsgData!)
+        ukeyInfo.append(clientInit)
+        ukeyInfo.append(serverInit)
 
         let authString = NearbyConnection.hkdf(
             inputKeyMaterial: SymmetricKey(data: derivedSecretKey),

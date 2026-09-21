@@ -18,7 +18,7 @@ public extension Data {
         if count <= numBytes {
             return self
         }
-        return subdata(in: count - numBytes..<count)
+        return Data(suffix(numBytes))
     }
 
     static func randomData(length: Int) -> Data {

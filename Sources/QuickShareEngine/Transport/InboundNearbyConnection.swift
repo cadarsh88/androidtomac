@@ -199,12 +199,12 @@ public class InboundNearbyConnection: NearbyConnection, StreamingFileWriterDeleg
         serverInit.random = Data.randomData(length: 32)
         serverInit.handshakeCipher = .p256Sha512
 
-        let rawPub = pubKey.rawRepresentation
+        let rawPub = Data(pubKey.rawRepresentation)
         var pkey = Securemessage_GenericPublicKey()
         pkey.type = .ecP256
         pkey.ecP256PublicKey = Securemessage_EcP256PublicKey()
-        pkey.ecP256PublicKey.x = rawPub.subdata(in: 0..<32)
-        pkey.ecP256PublicKey.y = rawPub.subdata(in: 32..<64)
+        pkey.ecP256PublicKey.x = Data(rawPub.prefix(32))
+        pkey.ecP256PublicKey.y = Data(rawPub.suffix(32))
         serverInit.publicKey = try pkey.serializedData()
 
         var serverInitMsg = Securegcm_Ukey2Message()
